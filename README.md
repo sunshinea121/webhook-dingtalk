@@ -1,5 +1,6 @@
 #### alertmanager-webhook
-```接收alertmanager消息，格式化后发送到钉钉机器人
+```
+接收alertmanager消息，格式化后发送到钉钉机器人
 通过job名称与告警时间进行告警抑制
 time为UTC时间
 ```
@@ -10,7 +11,8 @@ time为UTC时间
 #### 消息模板
 
 #### 配置文件模板
-```robot:
+```
+robot:
   webhook: "https://oapi.dingtalk.com/robot/send?access_token=991f96"
   secret: "SEC02dc23224dd449a8d570db1074dad6"
 
