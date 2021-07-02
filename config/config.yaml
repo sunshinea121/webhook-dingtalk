@@ -1,0 +1,25 @@
+robot:
+  webhook: "https://oapi.dingtalk.com/robot/send?access_token=3eb97a424f30f0dac631bec299fb1f7e36a6b05df579967dce0606b42f991f96"
+  secret: "SEC02dc23224dd449ad9f372454340202cf4e3f1d88de28b55988d570db1074dad6"
+
+log:
+  path: "E:\\sxy\\run.log"
+
+template:
+  name: "ding.html"
+
+time:
+  day_start_time: '083500'
+  day_end_time: '153500'
+  night_start_time: '093500'
+  night_end_time: '024000'
+
+job:
+  job_list: ['instance-down', "external_port", "ProcessFMSDown",]
+
+db:
+  host: '192.168.1.47'
+  port: 3306
+  user: 'root'
+  passwd: '123456'
+  database: 'alertmanager'
