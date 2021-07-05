@@ -84,43 +84,44 @@ def send():
         response_data['message'] = "Failed send message, robot config not found!"
 
     data = json.loads(request.data)
-
     alerts = data['alerts']
     description = data['alerts'][0]['annotations']['description']
-    status = data['alerts'][0]['status']
+    status = data['status']
     instance = data['alerts'][0]['labels']['instance']
     job = data['alerts'][0]['labels']['job']
     startsat = data['alerts'][0]['startsAt']
     endsat = data['alerts'][0]['endsAt']
-
+    fingerprint = data['alerts'][0]['fingerprint']
     for alert in alerts:
         alert_name = alert['labels']['alertname']
-
-        if get_cal_date(today) == 0 and alert_name in job_list:
-            # 如果为非交易日并且告警信息是
-            response_data['code'] = 200
-            response_data['message'] = str(alert)
-            my_log.console_log_logger.info("robot： dingtalk, response: %s" % (json.dumps(response_data)))
-        else:
-            # 如果在夜盘时间内
-            if str_to_time(night_start_time) < request_time < str_to_time(night_end_time):
+        if status == 'firing':
+            if get_cal_date(today) == 0 and alert_name in job_list:
+                # 如果为非交易日并且告警信息是
                 response_data['code'] = 200
                 response_data['message'] = str(alert)
-                alertmessage.append(alert)
-                my_log.console_log_logger.info("robot： dingtalk, response: %s" % (json.dumps(response_data)))
-                my_log.console_log_logger.info("robot： dingtalk, response: '夜盘时间，正常告警'")
-            elif str_to_time(day_start_time) < request_time < str_to_time(day_end_time):
-                response_data['code'] = 200
-                response_data['message'] = str(alert)
-                alertmessage.append(alert)
-                my_log.console_log_logger.info("robot： dingtalk, response: %s" % (json.dumps(response_data)))
-                my_log.console_log_logger.info("robot： dingtalk, response: '日盘时间，正常告警'")
-            elif alert_name in job_list:
-                response_data['code'] = 201
-                response_data['message'] = "我拦截" + " " + str(alert)
                 my_log.console_log_logger.info("robot： dingtalk, response: %s" % (json.dumps(response_data)))
             else:
-                alertmessage.append(alert)
+                # 如果在夜盘时间内
+                if str_to_time(night_start_time) < request_time < str_to_time(night_end_time):
+                    response_data['code'] = 200
+                    response_data['message'] = str(alert)
+                    alertmessage.append(alert)
+                    my_log.console_log_logger.info("robot： dingtalk, response: %s" % (json.dumps(response_data)))
+                    my_log.console_log_logger.info("robot： dingtalk, response: '夜盘时间，正常告警'")
+                elif str_to_time(day_start_time) < request_time < str_to_time(day_end_time):
+                    response_data['code'] = 200
+                    response_data['message'] = str(alert)
+                    alertmessage.append(alert)
+                    my_log.console_log_logger.info("robot： dingtalk, response: %s" % (json.dumps(response_data)))
+                    my_log.console_log_logger.info("robot： dingtalk, response: '日盘时间，正常告警'")
+                elif alert_name in job_list:
+                    response_data['code'] = 201
+                    response_data['message'] = "我拦截" + " " + str(alert)
+                    my_log.console_log_logger.info("robot： dingtalk, response: %s" % (json.dumps(response_data)))
+                else:
+                    alertmessage.append(alert)
+        else:
+            alertmessage.append(alert)
 
     if len(alertmessage):
         alert_name = alertmessage[0]['labels']['alertname']
@@ -132,11 +133,11 @@ def send():
         if not ret:
             response_data['message'] = "Send successful"
             if status == 'firing':
-                sql = f"""insert into alert_info (instance, status, alertname, job, alert_time,end_time, 
-                                description) values ('{instance}', '{status}', '{alert_name}', '{job}', 
-                                '{startsat}', '{endsat}', '{description}')"""
-                select_sql = f"""select * from alert_info where instance='{instance}' 
-                                and alertname='{alert_name}' and alert_time='{startsat}'"""
+                sql = f"""insert into alert_info (instance, status, alertname, job, alert_time, end_time, 
+                                description, fingerprint) values ('{instance}', '{status}', '{alert_name}', '{job}', 
+                                '{startsat}', '{endsat}', '{description}', '{fingerprint}')"""
+                select_sql = f"""select * from alert_info where alert_time='{alert_name}'
+                and fingerprint='{fingerprint}'"""
                 db.cur.execute(select_sql)
                 ret = db.cur.fetchone()
                 if ret is None:
@@ -145,8 +146,8 @@ def send():
                     db.conn.commit()
                 my_log.console_log_logger.info("robot： dingtalk, response: '数据库已经存在记录。'")
             else:
-                sql = f"""update alert_info set status='{status}', end_time='{endsat}' where instance='{instance}' 
-                                and alertname='{alert_name}' and alert_time='{startsat}'"""
+                sql = f"""update alert_info set status='{status}', end_time='{endsat}' where 
+                fingerprint='{fingerprint}'"""
                 my_log.console_log_logger.info("robot： dingtalk, response: '告警恢复'")
                 db.cur.execute(sql)
                 db.conn.commit()
