@@ -12,10 +12,8 @@ import util.mysql_client as mysql_client
 from myconfig import get_config
 from app_log import Mylog
 from util.get_cal_date import get_cal_date
-import prometheus_client
 
 # 日盘夜盘开始结束时间(UTC时间)
-today = datetime.datetime.now().strftime("%Y%m%d")
 tomorrow = (datetime.datetime.now() + datetime.timedelta(days=1)).strftime("%Y%m%d")
 my_log = Mylog()
 
@@ -28,7 +26,6 @@ def str_to_time(time_object):
     :return:
     """
     time_obj = datetime.datetime.strptime(time_object, '%Y%m%d%H%M%S')
-    # time_obj = int(time.mktime(time.strptime(time_object, "%Y%m%d%H:%M:%S")))
     return time_obj
 
 
@@ -36,7 +33,6 @@ def send_message(webhook, text, title='新消息', secret=None, is_at_all=False,
     try:
         ding = DingtalkChatbot(webhook=webhook, secret=secret)
         ret = ding.send_markdown(title=title, text=text, at_mobiles=at_mobiles, is_at_all=is_at_all)
-        print(ret)
         if ret['errcode'] == 0:
             return None
         else:
@@ -56,22 +52,29 @@ def alertmanager_json_to_markdown(alert_data):
         return render
 
 
-# Flask通用配置
-app = Flask(__name__)
-app.config['JSON_AS_ASCII'] = False
-
-
-@app.route('/webhook/send/', methods=['POST'])
-def send():
+def cut_alert(data):
     db = mysql_client.DB()
+    today = datetime.datetime.now().strftime("%Y%m%d")
     request_time = datetime.datetime.strptime(datetime.datetime.now().strftime("%Y%m%d%H%M%S"), "%Y%m%d%H%M%S")
-    robot_info = get_config().get('robot')
+    stock_info = get_config().get('stock')
+    futures_info = get_config().get('futures')
+    option_info = get_config().get('option')
+    server_info = get_config().get('server')
+    its_info = get_config().get('its')
+    higt_info = get_config().get('higt')
+
+    # 告警信息列表，存储告警时间
+    error_dingtalk_list = []
+
     day_start_time = today + get_config().get('time').get('day_start_time')
     day_end_time = today + get_config().get('time').get('day_end_time')
     night_start_time = today + get_config().get('time').get('night_start_time')
     night_end_time = today + get_config().get('time').get('night_end_time')
-    job_list = get_config().get('job').get('job_list')
+    its_start_time = today + get_config().get('time').get('its_start_time')
+    its_end_time = today + get_config().get('time').get('its_end_time')
+
     alertmessage = []
+
     text = {"alerts": alertmessage}
 
     response_data = {
@@ -79,11 +82,9 @@ def send():
         "message": None
     }
 
-    if not robot_info:
-        response_data['code'] = 400
-        response_data['message'] = "Failed send message, robot config not found!"
+    dingtalk_dict = {}
 
-    data = json.loads(request.data)
+    severity = data['alerts'][0]['labels']['severity']
     alerts = data['alerts']
     description = data['alerts'][0]['annotations']['description']
     status = data['status']
@@ -92,82 +93,145 @@ def send():
     startsat = data['alerts'][0]['startsAt']
     endsat = data['alerts'][0]['endsAt']
     fingerprint = data['alerts'][0]['fingerprint']
+    alert_name = alertmessage[0]['labels']['alertname']
+
+    try:
+        service = data['alerts'][0]['labels']['service']
+    except KeyError as e:
+        service = ""
+
     for alert in alerts:
-        alert_name = alert['labels']['alertname']
         if status == 'firing':
-            if get_cal_date(today) == 0 and alert_name in job_list:
-                # 如果为非交易日并且告警信息是
-                response_data['code'] = 200
-                response_data['message'] = str(alert)
-                my_log.console_log_logger.info("robot： dingtalk, response: %s" % (json.dumps(response_data)))
+            if get_cal_date(today) == 0 and service in ['rmcs', 'rmcf', 'rmco', 'its']:
+                # 非告警时间，直接返回已发送告警，屏蔽告警
+                response_data['code'] = 201
+                my_log.console_log_logger.info("robot： dingtalk, response: '非交易时间的告警信息'")
             else:
-                # 如果在夜盘时间内
-                if str_to_time(night_start_time) < request_time < str_to_time(night_end_time):
-                    response_data['code'] = 200
-                    response_data['message'] = str(alert)
-                    alertmessage.append(alert)
-                    my_log.console_log_logger.info("robot： dingtalk, response: %s" % (json.dumps(response_data)))
-                    my_log.console_log_logger.info("robot： dingtalk, response: '夜盘时间，正常告警'")
-                elif str_to_time(day_start_time) < request_time < str_to_time(day_end_time):
-                    response_data['code'] = 200
-                    response_data['message'] = str(alert)
-                    alertmessage.append(alert)
-                    my_log.console_log_logger.info("robot： dingtalk, response: %s" % (json.dumps(response_data)))
-                    my_log.console_log_logger.info("robot： dingtalk, response: '日盘时间，正常告警'")
-                elif alert_name in job_list:
-                    response_data['code'] = 201
-                    response_data['message'] = "我拦截" + " " + str(alert)
-                    my_log.console_log_logger.info("robot： dingtalk, response: %s" % (json.dumps(response_data)))
+                if service == 'rmcf':
+                    if (str_to_time(night_start_time) < request_time < str_to_time(night_end_time) or
+                            str_to_time(day_start_time) < request_time < str_to_time(day_end_time)):
+                        # 告警时间，查询futures_dingtalk_list,如果1分钟内少于20条，则添加到告警列表
+                        # 添加到list中，然后删除一分钟之前的所有数据
+                        alertmessage.append(alert)
+                        my_log.console_log_logger.info("robot： dingtalk, response: %s" % alert)
+                        ret = send_message(webhook=futures_info.get('webhook'),
+                                           secret=futures_info.get('secret'),
+                                           text=alertmanager_json_to_markdown(text))
+                        #
+                    else:
+                        # 非告警时间，直接返回已发送告警，屏蔽告警
+                        response_data['code'] = 201
+                        my_log.console_log_logger.info("robot： dingtalk, response: 非交易时间的rmcf告警,%s" % alert)
+                elif service == 'rmco':
+                    if (str_to_time(night_start_time) < request_time < str_to_time(night_end_time) or
+                            str_to_time(day_start_time) < request_time < str_to_time(day_end_time)):
+                        # 告警时间，添加到告警列表
+                        alertmessage.append(alert)
+                        my_log.console_log_logger.info("robot： dingtalk, response: %s" % alert)
+                        ret = send_message(webhook=option_info.get('webhook'),
+                                           secret=option_info.get('secret'),
+                                           text=alertmanager_json_to_markdown(text))
+                        #
+                    else:
+                        # 非告警时间，直接返回已发送告警，屏蔽告警
+                        response_data['code'] = 201
+                        my_log.console_log_logger.info("robot： dingtalk, response: 非交易时间的rmco告警,%s" % alert)
+                elif service == 'rmcs':
+                    if str_to_time(day_start_time) < request_time < str_to_time(day_end_time):
+                        alertmessage.append(alert)
+                        my_log.console_log_logger.info("robot： dingtalk, response: rmcs的告警，%s" % alert)
+                        ret = send_message(webhook=stock_info.get('webhook'),
+                                           secret=stock_info.get('secret'),
+                                           text=alertmanager_json_to_markdown(text))
+                    else:
+                        my_log.console_log_logger.info("robot： dingtalk, response: 非交易时间的rmcs告警，%s" % alert)
+                        # 非告警时间，直接返回已发送告警，屏蔽告警
+                        response_data['code'] = 201
+                elif service == 'its':
+                    if str_to_time(its_start_time) < request_time < str_to_time(its_end_time):
+                        alertmessage.append(alert)
+                        my_log.console_log_logger.info("robot: dingtalk, response: its告警, %s" % alert)
+                        ret = send_message(webhook=its_info.get('webhook'),
+                                           secret=its_info.get('secret'),
+                                           text=alertmanager_json_to_markdown(text))
+                    else:
+                        my_log.console_log_logger.info("robot: dingtalk, response: 非交易时间的交易系统告警， %s" % alert)
+                        # 非告警时间，直接返回已发送告警，屏蔽告警
+                        response_data['code'] = 201
+                elif service == 'host' and severity == 'critical':
+                    # 查看告警次数dict是否超过3，如果超过3则告警升级
+                    alert_dict_key_name = startsat + '_' + fingerprint
+                    if dingtalk_dict.get(alert_dict_key_name):
+
+                        alertmessage.append(alert)
+                        ret = send_message(webhook=higt_info.get('webhook'),
+                                           secret=higt_info.get('secret'),
+                                           text=alertmanager_json_to_markdown(text))
+                    else:
+                        dingtalk_dict = {alert_dict_key_name: 1}
+                        alertmessage.append(alert)
+                        ret = send_message(webhook=higt_info.get('webhook'),
+                                           secret=higt_info.get('secret'),
+                                           text=alertmanager_json_to_markdown(text))
                 else:
+                    my_log.console_log_logger.info("robot： dingtalk, response: 交易日期的其他告警，%s" % alert)
                     alertmessage.append(alert)
+                    ret = send_message(webhook=higt_info.get('webhook'),
+                                       secret=higt_info.get('secret'),
+                                       text=alertmanager_json_to_markdown(text))
         else:
+            my_log.console_log_logger.info("robot： dingtalk, response: '恢复告警信息'")
+            # 恢复告警，查找dict中告警标识，删除告警次数数据
             alertmessage.append(alert)
+            ret = send_message(webhook=server_info.get('webhook'),
+                               secret=server_info.get('secret'),
+                               text=alertmanager_json_to_markdown(text))
 
-    if len(alertmessage):
-        alert_name = alertmessage[0]['labels']['alertname']
-
-        ret = send_message(webhook=robot_info.get('webhook'),
-                           secret=robot_info.get('secret'),
-                           text=alertmanager_json_to_markdown(text))
-
-        if not ret:
-            response_data['message'] = "Send successful"
-            if status == 'firing':
-                sql = f"""insert into alert_info (instance, status, alertname, job, alert_time, end_time, 
-                                description, fingerprint) values ('{instance}', '{status}', '{alert_name}', '{job}', 
-                                '{startsat}', '{endsat}', '{description}', '{fingerprint}')"""
-                select_sql = f"""select * from alert_info where alert_time='{alert_name}'
-                and fingerprint='{fingerprint}'"""
-                db.cur.execute(select_sql)
-                ret = db.cur.fetchone()
-                if ret is None:
-                    my_log.console_log_logger.info("robot： dingtalk, response: '数据库没有记录。'")
-                    db.cur.execute(sql)
-                    db.conn.commit()
-                my_log.console_log_logger.info("robot： dingtalk, response: '数据库已经存在记录。'")
-            else:
-                sql = f"""update alert_info set status='{status}', end_time='{endsat}' where 
-                fingerprint='{fingerprint}'"""
-                my_log.console_log_logger.info("robot： dingtalk, response: '告警恢复'")
+    if not ret:
+        response_data['message'] = "Send successful"
+        if status == 'firing':
+            sql = f"""insert into alert_info (instance, status, alertname, job, alert_time, end_time,description, 
+            fingerprint, alert_num) values ('{instance}', '{status}', '{alert_name}', '{job}','{startsat}', 
+            '{endsat}', '{description}', '{fingerprint}', 1)"""
+            select_sql = f"""select * from alert_info where alert_time='{startsat}'
+            and fingerprint='{fingerprint}'"""
+            db.cur.execute(select_sql)
+            ret = db.cur.fetchone()
+            if ret is None:
+                my_log.console_log_logger.info("robot： dingtalk, response: '数据库没有记录。'")
                 db.cur.execute(sql)
                 db.conn.commit()
-            response_data['message'] = str(alerts)
-            my_log.log_to_file_logger.info("robot： dingtalk, response: %s" % (json.dumps(response_data)))
+            else:
+                update_sql = f"""update alert_info set alert_num=alert_num + 1 where alert_time='{startsat}'
+                and fingerprint='{fingerprint}'"""
+                db.cur.execute(update_sql)
+                my_log.console_log_logger.info("robot： dingtalk, response: '数据库已经存在记录。'")
         else:
-            response_data['message'] = ret
-            response_data['code'] = 400
-            my_log.log_to_file_logger.info("robot： dingtalk, response: %s" % (json.dumps(response_data)))
+            sql = f"""update alert_info set status='{status}', end_time='{endsat}' where 
+            fingerprint='{fingerprint}'"""
+            my_log.console_log_logger.info("robot： dingtalk, response: '告警恢复'")
+            db.cur.execute(sql)
+            db.conn.commit()
+        response_data['message'] = str(alerts)
+        my_log.log_to_file_logger.info("robot： dingtalk, response: %s" % (json.dumps(response_data)))
+    else:
+        # 如果返回码等于400 ，即发送数量超过20条，统计相关信息，保存到列表中，下次发送后，pop出相关元素
+        error_dingtalk_list.append(data)
+        response_data['code'] = 200
+        my_log.log_to_file_logger.info("robot： dingtalk, response: %s" % (json.dumps(response_data)))
 
     return Response(response=json.dumps(response_data), status=response_data['code'], mimetype='application/json')
 
 
-@app.route('/metrics/', methods=['GET'])
-def mointor_alter_data():
-    total_alert_num = prometheus_client.Counter(name='total_alert_num', documentation='Total number of alarms.')
-    month_alert_num = prometheus_client.Counter(name='month_alert_num', documentation='Number of alerts this month.')
-    week_alert_num = prometheus_client.Counter(name='week_alert_num', documentation='Number of alarms this week.')
-    current_alert_num = prometheus_client.Gauge(name='current_alert_num', documentation='Number of current alarms.')
-    pass
+# Flask通用配置
+app = Flask(__name__)
+app.config['JSON_AS_ASCII'] = False
+
+
+@app.route('/webhook/send/', methods=['POST'])
+def send():
+    data = json.loads(request.data)
+    cut_alert(data)
 
 
 if __name__ == '__main__':

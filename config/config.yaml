@@ -1,6 +1,15 @@
-robot:
-  webhook: "https://oapi.dingtalk.com/robot/send?access_token=3eb95df579967dce0606b42f991f96"
-  secret: "SEC02dc23224dd4988d570db1074dad6"
+futures:
+  webhook: "https://oapi.dingtalk.com/robot/send?access_token=b59f20da15ddd37ffb4238bf338e8e4c6852c5f52292aeba07cc43d03fb4f3a4"
+  secret: "SECa2fc8d0c477949ebc5d5ce149ae2f0df9d4d116ec98cfa9cd1a32302822ef03a"
+stock:
+  webhook: "https://oapi.dingtalk.com/robot/send?access_token=806be9234e38ae949757512e9f0bb00c8394cae7e2c161e117f2c3ffe2d10e7a"
+  secret: "SEC315964662e8edd7079ba0ed72a6aeea881a9f0f401e65a86b3cbff26f7456004"
+server:
+  webhook: "https://oapi.dingtalk.com/robot/send?access_token=3eb97a424f30f0dac631bec299fb1f7e36a6b05df579967dce0606b42f991f96"
+  secret: "SEC02dc23224dd449ad9f372454340202cf4e3f1d88de28b55988d570db1074dad6"
+option:
+  webhook: "https://oapi.dingtalk.com/robot/send?access_token=442be8cb7f7809369def9a0853c2e137f596ea464a87be1d27bc4e00be1736d1"
+  secret: "SEC59143e887e31152a0dd2ab1b505a62ae92780cc3f346beeb6d29c019ad86b795"
 
 log:
   path: "E:\\sxy\\run.log"
@@ -10,12 +19,13 @@ template:
 
 time:
   day_start_time: '083500'
-  day_end_time: '153500'
-  night_start_time: '093500'
-  night_end_time: '024000'
+  day_end_time: '161500'
+  night_start_time: '203000'
+  night_end_time: '030000'
 
 job:
-  job_list: ['instance-down', "external_port", "ProcessFMSDown",]
+  stock_job_list: ["股票行情smf程序","股票行情sma程序","股票行情sms程序","股票行情smd程序","股票行情smk程序","华泰股票行情接口(备)","华泰股票行情接口(备)","华泰股票行情接口(主)","国泰安股票行情接口1","国泰安股票行情接口2","国泰安股票行情接口3","国泰安股票行情接口4"]
+  futures_job_list: ["期货行情fma程序","期货行情fms程序","期货行情fmd程序","期货行情fmk程序","兴证期货行情接口(上海电信 主)","兴证期货交易接口(上海电信 主)","兴证期货行情接口(上海电信 备)","兴证期货行情接口(上海电信 备)","中信期货行情接口(北京联通 主)","中信期货行情接口(北京联通 备)",]
 
 db:
   host: '192.168.1.47'

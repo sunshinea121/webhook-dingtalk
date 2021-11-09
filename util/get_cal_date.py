@@ -55,8 +55,6 @@ def get_cal_date(date_time):
         if ret is None:
             get_daily()
             return None
-        return ret
+        return ret['is_open']
     except Exception as e:
         return None
-    # dataframe = df[df['cal_date'] == date_time]
-    # return dataframe.loc[0]['is_open']
