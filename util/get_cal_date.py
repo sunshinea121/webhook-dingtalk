@@ -51,10 +51,10 @@ def get_cal_date(date_time):
     try:
         db = DB()
         db.cur.execute(sql)
-        ret = db.cur.fetchone()
-        if ret is None:
+        ret_n = db.cur.fetchone()
+        if ret_n is None:
             get_daily()
             return None
-        return ret['is_open']
+        return ret_n['is_open']
     except Exception as e:
         return None
